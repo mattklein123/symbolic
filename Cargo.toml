@@ -69,8 +69,8 @@ walkdir = "2.3.1"
 wasm-bindgen-test = "0.3.75"
 wasmparser = "0.243.0"
 watto = { version = "0.2.0", features = ["writer", "strings"] }
-zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
-zstd = { version = "0.13.1" }
+zip = { version = "9.0.0", default-features = false, features = ["deflate"] }
+zstd = { version = "0.14.3" }
 
 [profile.release]
 debug = true
