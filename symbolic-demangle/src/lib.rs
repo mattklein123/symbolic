@@ -4,7 +4,7 @@
 //!
 //! - C++ (GCC-style compilers and MSVC) (`features = ["cpp", "msvc"]`)
 //! - Rust (both `legacy` and `v0`) (`features = ["rust"]`)
-//! - Swift (up to Swift 5.3) (`features = ["swift"]`)
+//! - Swift (up to Swift 6.3.1) (`features = ["swift"]`)
 //! - ObjC (only symbol detection)
 //!
 //! As the demangling schemes for the languages are different, the supported demangling features are
@@ -61,6 +61,8 @@ extern "C" {
     ) -> c_int;
 
     fn symbolic_demangle_is_swift_symbol(sym: *const c_char) -> c_int;
+
+    fn symbolic_demangle_swift_type(sym: *const c_char, buf: *mut c_char, buf_len: usize) -> c_int;
 }
 
 /// Maximum parser recursion depth when demangling MSVC symbols.
@@ -200,6 +202,7 @@ fn try_demangle_msvc(_ident: &str, _opts: DemangleOptions) -> Option<String> {
 
 /// Removes a suffix consisting of $ followed by 32 hex digits, if there is one,
 /// otherwise returns its input.
+#[cfg(any(feature = "cpp", test))]
 fn strip_hash_suffix(ident: &str) -> &str {
     let len = ident.len();
     if len >= 33 {
@@ -220,11 +223,13 @@ fn strip_hash_suffix(ident: &str) -> &str {
     ident
 }
 
+#[cfg(feature = "cpp")]
 struct BoundedString {
     str: String,
     bound: usize,
 }
 
+#[cfg(feature = "cpp")]
 impl BoundedString {
     fn new(bound: usize) -> Self {
         Self {
@@ -238,6 +243,7 @@ impl BoundedString {
     }
 }
 
+#[cfg(feature = "cpp")]
 impl std::fmt::Write for BoundedString {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
         if self.str.len().saturating_add(s.len()) > self.bound {
@@ -261,37 +267,45 @@ fn try_demangle_cpp(ident: &str, opts: DemangleOptions) -> Option<String> {
 
     #[cfg(feature = "cpp")]
     {
-        use cpp_demangle::{DemangleOptions as CppOptions, ParseOptions, Symbol as CppSymbol};
-
-        let stripped = strip_hash_suffix(ident);
-
-        let parse_options = ParseOptions::default().recursion_limit(160); // default is 96
-        let symbol = match CppSymbol::new_with_options(stripped, &parse_options) {
-            Ok(symbol) => symbol,
-            Err(_) => return None,
-        };
-
-        let mut cpp_options = CppOptions::new().recursion_limit(192); // default is 128
-        if !opts.parameters {
-            cpp_options = cpp_options.no_params();
-        }
-        if !opts.return_type {
-            cpp_options = cpp_options.no_return_type();
-        }
-
-        // Bound the maximum output string, as a huge number of substitutions could potentially
-        // lead to a "Billion laughs attack".
-        let mut buf = BoundedString::new(4096);
-
-        symbol
-            .structured_demangle(&mut buf, &cpp_options)
-            .ok()
-            .map(|_| buf.into_inner())
+        try_demangle_cpp_encoding(strip_hash_suffix(ident), opts, 160, 192)
     }
     #[cfg(not(feature = "cpp"))]
     {
         None
     }
+}
+
+#[cfg(feature = "cpp")]
+fn try_demangle_cpp_encoding(
+    ident: &str,
+    opts: DemangleOptions,
+    parse_limit: u32,
+    print_limit: u32,
+) -> Option<String> {
+    use cpp_demangle::{DemangleOptions as CppOptions, ParseOptions, Symbol as CppSymbol};
+
+    let parse_options = ParseOptions::default().recursion_limit(parse_limit);
+    let symbol = match CppSymbol::new_with_options(ident, &parse_options) {
+        Ok(symbol) => symbol,
+        Err(_) => return None,
+    };
+
+    let mut cpp_options = CppOptions::new().recursion_limit(print_limit);
+    if !opts.parameters {
+        cpp_options = cpp_options.no_params();
+    }
+    if !opts.return_type {
+        cpp_options = cpp_options.no_return_type();
+    }
+
+    // Bound the maximum output string, as a huge number of substitutions could potentially
+    // lead to a "Billion laughs attack".
+    let mut buf = BoundedString::new(4096);
+
+    symbol
+        .structured_demangle(&mut buf, &cpp_options)
+        .ok()
+        .map(|_| buf.into_inner())
 }
 
 #[cfg(feature = "rust")]
@@ -338,6 +352,21 @@ fn try_demangle_swift(_ident: &str, _opts: DemangleOptions) -> Option<String> {
 
 fn demangle_objc(ident: &str, _opts: DemangleOptions) -> String {
     ident.to_string()
+}
+
+#[cfg(feature = "swift")]
+fn try_demangle_swift_type(ident: &str) -> Option<String> {
+    if !ident.starts_with("_Tt") {
+        return None;
+    }
+    let sym = CString::new(ident).ok()?;
+    let mut buf = vec![0; 4097];
+    unsafe {
+        match symbolic_demangle_swift_type(sym.as_ptr(), buf.as_mut_ptr(), buf.len()) {
+            0 => None,
+            _ => Some(CStr::from_ptr(buf.as_ptr()).to_str().ok()?.to_string()),
+        }
+    }
 }
 
 fn try_demangle_objcpp(ident: &str, opts: DemangleOptions) -> Option<String> {
@@ -497,6 +526,34 @@ impl Demangle for Name<'_> {
 /// [`Demangle::try_demangle`]: trait.Demangle.html#tymethod.try_demangle
 pub fn demangle(ident: &str) -> Cow<'_, str> {
     match Name::from(ident).demangle(DemangleOptions::complete()) {
+        Some(demangled) => Cow::Owned(demangled),
+        None => Cow::Borrowed(ident),
+    }
+}
+
+/// Demangles a runtime type name in an explicitly supplied language.
+///
+/// Unlike [`demangle`], this accepts bare C++ RTTI encodings such as `7TFPFont`. Callers must
+/// establish the language from the source of the name, not by trying parsers on readable text.
+/// Unsupported, malformed, or over-budget names are returned unchanged. Input and output are
+/// limited to 4096 bytes, with additional parser and printer recursion limits. Swift support is
+/// limited to legacy `_Tt` runtime type names. Its node allocator is capped at 256 KiB and its
+/// printer at 16384 node visits; this does not change ordinary Swift function-symbol demangling.
+pub fn demangle_type(ident: &str, language: Language) -> Cow<'_, str> {
+    if ident.len() > 4096 || ident.as_bytes().contains(&0) {
+        return Cow::Borrowed(ident);
+    }
+
+    let demangled = match language {
+        #[cfg(feature = "cpp")]
+        Language::Cpp if !is_maybe_cpp(ident) && !is_maybe_msvc(ident) => {
+            try_demangle_cpp_encoding(ident, DemangleOptions::complete(), 32, 64)
+        }
+        #[cfg(feature = "swift")]
+        Language::Swift => try_demangle_swift_type(ident),
+        _ => None,
+    };
+    match demangled {
         Some(demangled) => Cow::Owned(demangled),
         None => Cow::Borrowed(ident),
     }

@@ -8,7 +8,7 @@ Currently supported languages are:
 
 - C++ (GCC-style compilers and MSVC)
 - Rust (both `legacy` and `v0`)
-- Swift (up to Swift 5.2)
+- Swift (vendored Swift 6.3.1 demangler)
 - ObjC (only symbol detection)
 
 As the demangling schemes for the languages are different, the supported demangling features are
@@ -16,6 +16,20 @@ inconsistent. For example, argument types were not encoded in legacy Rust mangli
 available in demangled names.
 
 This module is part of the `symbolic` crate and can be enabled via the `demangle` feature.
+
+## Runtime Type Names
+
+Use `demangle_type(name, language)` only when the source identifies a runtime type encoding.
+It supports bare C++ RTTI names and legacy Swift `_Tt` runtime names without relaxing
+ordinary function-symbol detection. For example, `7TFPFont` with `Language::Cpp` becomes
+`TFPFont`, and `_TtC10Foundation13__DataStorage` with `Language::Swift` becomes
+`Foundation.__DataStorage`. Keep the raw name as the identity; display names can collide.
+
+Unsupported languages, disabled features, malformed names, and exceeded budgets return the
+borrowed original name. Input and output are limited to 4096 bytes. C++ parsing/printing have
+recursion limits of 32/64. Swift parsing/printing have depth limits of 64, a 256 KiB node-factory
+allocation limit, and a 16384-node print-work limit. Bounds apply during parsing and rendering,
+not just to the final output buffer. Other Swift runtime spellings remain unsupported.
 
 ## Examples
 

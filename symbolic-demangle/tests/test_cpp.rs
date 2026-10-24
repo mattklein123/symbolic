@@ -8,7 +8,52 @@
 mod utils;
 
 use symbolic_common::Language;
-use symbolic_demangle::{Demangle, DemangleOptions};
+use symbolic_demangle::{demangle_type, Demangle, DemangleOptions};
+
+#[test]
+fn runtime_types_require_explicit_context() {
+    for (raw, display) in [
+        ("7TFPFont", "TFPFont"),
+        ("N3foo3BarE", "foo::Bar"),
+        ("PKi", "int const*"),
+        ("PFviE", "void (*)(int)"),
+        ("a", "signed char"),
+    ] {
+        assert_eq!(demangle_type(raw, Language::Cpp), display);
+        assert_eq!(symbolic_demangle::demangle(raw), raw);
+        assert_eq!(demangle_type(raw, Language::Unknown), raw);
+    }
+}
+
+#[test]
+fn runtime_types_preserve_unsupported_names() {
+    for raw in [
+        "",
+        "TFPFont",
+        "foo::Bar",
+        "7TFPFontjunk",
+        "7TFPFont\0",
+        "_Z3foov",
+        "7TFPFont$0123456789abcdef0123456789abcdef",
+    ] {
+        assert_eq!(demangle_type(raw, Language::Cpp), raw);
+    }
+}
+
+#[test]
+fn runtime_types_bound_input_and_recursion() {
+    for raw in ["P".repeat(512) + "i", "1".repeat(4097)] {
+        assert_eq!(demangle_type(&raw, Language::Cpp), raw);
+    }
+}
+
+#[test]
+fn runtime_types_bound_expansion() {
+    let small = "N1AI".to_string() + &"S_".repeat(3) + "EE";
+    assert_eq!(demangle_type(&small, Language::Cpp), "A<A, A, A>");
+    let expanded = "N1AI".to_string() + &"S_".repeat(1800) + "EE";
+    assert_eq!(demangle_type(&expanded, Language::Cpp), expanded);
+}
 
 #[test]
 fn test_demangle_cpp() {

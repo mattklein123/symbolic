@@ -1,7 +1,7 @@
 //! Language auto-detection tests
 
 use symbolic_common::{Language, Name};
-use symbolic_demangle::Demangle;
+use symbolic_demangle::{demangle_type, Demangle};
 
 use similar_asserts::assert_eq;
 
@@ -14,6 +14,34 @@ fn assert_language(input: &str, lang: Language) {
 fn test_unknown() {
     // Fallback to test false positives
     assert_language("xxxxxxxxxxx", Language::Unknown);
+}
+
+#[test]
+fn runtime_types_preserve_unsupported_languages() {
+    for language in [
+        Language::Unknown,
+        Language::ObjC,
+        Language::ObjCpp,
+        Language::Rust,
+    ] {
+        assert!(matches!(
+            demangle_type("7TFPFont", language),
+            std::borrow::Cow::Borrowed("7TFPFont")
+        ));
+    }
+}
+
+#[cfg(not(feature = "cpp"))]
+#[test]
+fn runtime_types_preserve_disabled_cpp() {
+    assert_eq!(demangle_type("7TFPFont", Language::Cpp), "7TFPFont");
+}
+
+#[cfg(not(feature = "swift"))]
+#[test]
+fn runtime_types_preserve_disabled_swift() {
+    let raw = "_TtC10Foundation13__DataStorage";
+    assert_eq!(demangle_type(raw, Language::Swift), raw);
 }
 
 #[test]

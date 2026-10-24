@@ -60,6 +60,8 @@ class NodeFactory {
   /// The slab size can only grow, even clear() does not reset the slab size.
   /// This initial size is good enough to fit most de-manglings.
   size_t SlabSize = 100 * sizeof(Node);
+  size_t AllocationLimit = 0;
+  size_t AllocatedSize = 0;
 
   static char *align(char *Ptr, size_t Alignment) {
     assert(Alignment > 0);
@@ -82,6 +84,8 @@ class NodeFactory {
 #endif
 
 public:
+  void setAllocationLimit(size_t Limit) { AllocationLimit = Limit; }
+
 #ifndef NDEBUG
   /// Enabled only by the unit tests to test the failure paths.
   bool disableAssertionsForUnitTest = false;
@@ -138,6 +142,8 @@ public:
   /// Allocates an object of type T or an array of objects of type T.
   template<typename T> T *Allocate(size_t NumObjects = 1) {
     assert(!isBorrowed);
+    if (AllocationLimit && NumObjects > AllocationLimit / sizeof(T))
+      throw std::length_error("demangler allocation limit");
     size_t ObjectSize = NumObjects * sizeof(T);
     CurPtr = align(CurPtr, alignof(T));
 #ifdef NODE_FACTORY_DEBUGGING
@@ -151,6 +157,12 @@ public:
       // We double the slab size for each allocated slab.
       SlabSize = std::max(SlabSize * 2, ObjectSize + alignof(T));
       size_t AllocSize = sizeof(AllocatedSlab) + SlabSize;
+      if (AllocationLimit) {
+        if (AllocSize > AllocationLimit ||
+            AllocatedSize > AllocationLimit - AllocSize)
+          throw std::length_error("demangler allocation limit");
+        AllocatedSize += AllocSize;
+      }
       AllocatedSlab *newSlab = (AllocatedSlab *)malloc(AllocSize);
 
       // Insert the new slab in the single-linked list of slabs.
@@ -702,7 +714,8 @@ public:
 };
 
 NodePointer demangleOldSymbolAsNode(StringRef MangledName,
-                                    NodeFactory &Factory);
+                                    NodeFactory &Factory,
+                                    unsigned MaxDepth = 1024);
 SWIFT_END_INLINE_NAMESPACE
 } // end namespace Demangle
 } // end namespace swift

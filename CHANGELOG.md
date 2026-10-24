@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+**Features**
+
+- Add bounded, explicit `symbolic_demangle::demangle_type` support for bare C++ RTTI
+  and legacy Swift runtime type names, preserving raw fallback and ordinary symbol behavior.
+
 ## 13.9.0
 
 **Fixes**

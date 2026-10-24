@@ -1,6 +1,8 @@
 fn main() {
     #[cfg(feature = "swift")]
     {
+        println!("cargo:rerun-if-changed=src/swiftdemangle.cpp");
+        println!("cargo:rerun-if-changed=vendor/swift");
         cc::Build::new()
             .cpp(true)
             .std("c++17")
@@ -12,6 +14,7 @@ fn main() {
                 "vendor/swift/lib/Demangling/ManglingUtils.cpp",
                 "vendor/swift/lib/Demangling/NodeDumper.cpp",
                 "vendor/swift/lib/Demangling/NodePrinter.cpp",
+                "vendor/swift/lib/Demangling/OldDemangler.cpp",
                 "vendor/swift/lib/Demangling/Punycode.cpp",
                 "vendor/swift/lib/Demangling/Remangler.cpp",
             ])

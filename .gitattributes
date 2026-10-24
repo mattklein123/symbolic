@@ -2,3 +2,4 @@
 .gitignore export-ignore
 py/* export-ignore
 version.sh export-ignore
+symbolic-demangle/vendor/swift/3-runtime-type-bounds.patch -whitespace

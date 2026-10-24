@@ -32,6 +32,7 @@
 #include <cstdlib>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 namespace swift {
@@ -794,14 +795,16 @@ std::string keyPathSourceString(const char *MangledName,
 /// A class for printing to a std::string.
 class DemanglerPrinter {
 public:
-  DemanglerPrinter() = default;
+  explicit DemanglerPrinter(size_t Limit = 0) : Limit(Limit) {}
 
   DemanglerPrinter &operator<<(llvm::StringRef Value) & {
+    checkAppend(Value.size());
     Stream.append(Value.data(), Value.size());
     return *this;
   }
   
   DemanglerPrinter &operator<<(char c) & {
+    checkAppend(1);
     Stream.push_back(c);
     return *this;
   }
@@ -840,6 +843,12 @@ public:
   }
 
 private:
+  void checkAppend(size_t Size) const {
+    if (Limit && (Size > Limit || Stream.size() > Limit - Size))
+      throw std::length_error("demangler output limit");
+  }
+
+  size_t Limit;
   std::string Stream;
 };
 
@@ -890,9 +899,15 @@ protected:
   DemangleOptions Options;
   bool SpecializationPrefixPrinted = false;
   bool isValid = true;
+  unsigned DepthLimit;
+  size_t RemainingNodes;
+  bool LimitNodes;
 
 public:
-  NodePrinter(DemangleOptions options) : Options(options) {}
+  NodePrinter(DemangleOptions options, size_t OutputLimit = 0,
+              unsigned DepthLimit = MaxDepth, size_t NodeLimit = 0)
+      : Printer(OutputLimit), Options(options), DepthLimit(DepthLimit),
+        RemainingNodes(NodeLimit), LimitNodes(NodeLimit != 0) {}
 
   virtual ~NodePrinter() = default;
 

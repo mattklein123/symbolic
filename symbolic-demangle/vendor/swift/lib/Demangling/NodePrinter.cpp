@@ -30,20 +30,17 @@ using llvm::StringRef;
 DemanglerPrinter &DemanglerPrinter::operator<<(unsigned long long n) & {
   char buffer[32];
   snprintf(buffer, sizeof(buffer), "%llu", n);
-  Stream.append(buffer);
-  return *this;
+  return *this << StringRef(buffer);
 }
 DemanglerPrinter &DemanglerPrinter::writeHex(unsigned long long n) & {
   char buffer[32];
   snprintf(buffer, sizeof(buffer), "%llX", n);
-  Stream.append(buffer);
-  return *this;
+  return *this << StringRef(buffer);
 }
 DemanglerPrinter &DemanglerPrinter::operator<<(long long n) & {
   char buffer[32];
   snprintf(buffer, sizeof(buffer), "%lld",n);
-  Stream.append(buffer);
-  return *this;
+  return *this << StringRef(buffer);
 }
 
 #if SWIFT_STDLIB_HAS_TYPE_PRINTING
@@ -1416,7 +1413,9 @@ static bool shouldShowEntityType(Node::Kind EntityKind,
 
 NodePointer NodePrinter::print(NodePointer Node, unsigned depth,
                                bool asPrefixContext) {
-  if (depth > NodePrinter::MaxDepth) {
+  if (LimitNodes && (depth > DepthLimit || RemainingNodes-- == 0))
+    throw std::length_error("demangler print work limit");
+  if (depth > DepthLimit) {
     Printer << "<<too complex>>";
     return nullptr;
   }

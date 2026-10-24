@@ -7,7 +7,80 @@
 mod utils;
 
 use symbolic_common::Language;
-use symbolic_demangle::DemangleOptions;
+use symbolic_demangle::{demangle_type, DemangleOptions};
+
+#[test]
+fn runtime_types_demangle_classes_and_generics() {
+    for (raw, display) in [
+        (
+            "_TtC10Foundation13__DataStorage",
+            "Foundation.__DataStorage",
+        ),
+        (
+            "_TtC7Capture17MemoryDumpCommand",
+            "Capture.MemoryDumpCommand",
+        ),
+        (
+            "_TtGCs23_ContiguousArrayStorageSi_",
+            "Swift._ContiguousArrayStorage<Swift.Int>",
+        ),
+        (
+            "_TtC4TestP33_0123456789ABCDEF0123456789ABCDEF3Foo",
+            "Test.(Foo in _0123456789ABCDEF0123456789ABCDEF)",
+        ),
+    ] {
+        assert_eq!(demangle_type(raw, Language::Swift), display);
+        assert_eq!(symbolic_demangle::demangle(raw), raw);
+    }
+}
+
+#[test]
+fn runtime_types_preserve_unsupported_names() {
+    for raw in [
+        "",
+        "NSObject",
+        "Foundation.__DataStorage",
+        "_TIPreference",
+        "_TtC",
+        "_TtG",
+        "_TtC10Foundation13__DataStoragejunk",
+        "_TtC10Foundation13__DataStorage\0",
+        "$s4Test3fooyyF",
+    ] {
+        assert_eq!(demangle_type(raw, Language::Swift), raw);
+    }
+}
+
+#[test]
+fn runtime_types_bound_input_and_recursion() {
+    for raw in [
+        "_Tt".to_string() + &"GSq".repeat(256) + "Si" + &"_".repeat(256),
+        "_TtC".to_string() + &"1".repeat(4097),
+    ] {
+        assert_eq!(demangle_type(&raw, Language::Swift), raw);
+    }
+}
+
+#[test]
+fn runtime_types_bound_expansion() {
+    let small = "_TtGC1M4Long".to_string() + &"S0_".repeat(3) + "_";
+    assert_eq!(
+        demangle_type(&small, Language::Swift),
+        "M.Long<M.Long, M.Long, M.Long>"
+    );
+    let expanded = "_TtGC1M500".to_string() + &"x".repeat(500) + &"S0_".repeat(10) + "_";
+    assert_eq!(demangle_type(&expanded, Language::Swift), expanded);
+}
+
+#[test]
+fn runtime_types_bound_parser_allocations() {
+    assert_eq!(
+        demangle_type("_TtTSiSi_", Language::Swift),
+        "(Swift.Int, Swift.Int)"
+    );
+    let large = "_TtT".to_string() + &"Si".repeat(2000) + "_";
+    assert_eq!(demangle_type(&large, Language::Swift), large);
+}
 
 #[test]
 fn test_demangle_swift_short() {

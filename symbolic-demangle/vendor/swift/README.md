@@ -7,8 +7,17 @@ The current version is **Swift 6.3.1**.
 
 ## Sentry Modifications
 
-The library has been modified to add an option to hide function arguments during demangling. This
-patch is maintained in `1-arguments.patch`.
+Two patches already shipped by upstream Symbolic are retained: `1-arguments.patch` controls
+function argument/return-type display, and `2-metatype-compat.patch` accepts an older metatype
+specialization encoding after the Swift 6.3 update.
+
+The runtime-type API additionally restores Swift's legacy grammar parser, `OldDemangler.cpp`.
+Modern apps still expose this grammar through Objective-C runtime names such as `_TtC...`.
+The source comes from the matching release, pinned to Swift Git blob
+`7acd278a0827972f1866737fac3e1e5e25785dcd` from `swift-6.3.1-RELEASE` before local patches.
+`3-runtime-type-bounds.patch` adds opt-in node allocation, parsing-depth, print-depth, output,
+and print-work limits. Default settings preserve ordinary function-symbol behavior. The Rust
+build includes the old parser but does not enable `SWIFT_SUPPORT_OLD_MANGLING` globally.
 
 ## How to Update
 
@@ -24,7 +33,7 @@ patch is maintained in `1-arguments.patch`.
    3. Check out the release branch of the latest release:
       ```
       $ cd swift
-      $ git checkout swift-5.5.1-RELEASE
+      $ git checkout swift-6.3.1-RELEASE
       ```
    4. Check out dependencies:
       ```
@@ -42,19 +51,19 @@ patch is maintained in `1-arguments.patch`.
    2. Check for modifications.
    3. Commit _"feat(demangle): Import libswift demangle x.x.x"_ before proceeding.
 3. **Apply the patch:**
-   1. Apply `1-arguments.patch`.
+   1. Apply `1-arguments.patch`, `2-metatype-compat.patch`, and
+      `3-runtime-type-bounds.patch`, in that order. Paths are relative to the repository root.
+      Keep `OldDemangler.cpp` in the updater's copied sources and the Rust build source list.
    2. Build the Rust library and ensure tests work.
    3. Commit the changes.
 4. **Add tests for new mangling schemes:**
    1. Identify new mangling schemes. Skip if there are no known changes.
-   2. Add test cases to `tests/swift.rs`
+   2. Add test cases to `symbolic-demangle/tests/test_swift.rs`.
 5. **Update Repository metadata**:
    1. Bump the Swift version number in this README.
    2. Check for changes in the license and update the files.
-   3. Update the patch file with the commit generated in step 3:
-      ```
-      $ git show <commit> > 1-arguments.patch
-      ```
+   3. Refresh each affected patch against its pre-patch sources, keeping the three purposes
+      separate and preserving upstream source formatting.
 6. **Create a pull request.**
 
 [swift programming language]: https://github.com/apple/swift

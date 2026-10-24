@@ -11,7 +11,6 @@ DEMANGLING_PATH = "lib/Demangling"
 # Demangling binaries/sources which aren't required.
 DEMANGLING_IGNORE = [
     "CrashReporter.*",
-    "OldDemangler.*",
     "OldRemangler.*",
 ]
 # List of includes which `clang` can or does not infer from the sources.
