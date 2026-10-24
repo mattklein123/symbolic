@@ -1,0 +1,32 @@
+[package]
+name = "symbolic-datacache"
+version = "13.9.0"
+license = "MIT"
+description = "Portable raw data-symbol caches with exact u64 address lookup."
+readme = "README.md"
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["builder"]
+builder = ["dep:symbolic-debuginfo"]
+
+[dependencies]
+sha2 = { workspace = true }
+symbolic-common = { version = "13.9.0", path = "../symbolic-common" }
+symbolic-debuginfo = { version = "13.9.0", path = "../symbolic-debuginfo", optional = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+goblin = { workspace = true, features = ["mach64", "std"] }
+proptest = { workspace = true }
+scroll = { workspace = true }
+symbolic-testutils = { path = "../symbolic-testutils", features = ["macho"] }
+tempfile = { workspace = true }
+
+[[bench]]
+name = "datacache"
+harness = false
+required-features = ["builder"]

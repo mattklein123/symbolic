@@ -5,6 +5,7 @@ use std::io::BufWriter;
 use symbolic_common::{ByteView, Language};
 use symbolic_debuginfo::dwarf::DwarfErrorKind;
 use symbolic_debuginfo::elf::ElfObject;
+use symbolic_debuginfo::macho::MachObject;
 use symbolic_debuginfo::{
     pe::PeObject, FileEntry, Function, LineInfo, Object, ParseObjectOptions, SymbolMap,
 };
@@ -24,7 +25,7 @@ impl fmt::Debug for SymbolsDebug<'_> {
                 f,
                 "{:>16x} {}",
                 &symbol.address,
-                &symbol.name().unwrap_or("<unknown>")
+                symbol.name().unwrap_or("<unknown>")
             )?;
         }
 
@@ -521,6 +522,28 @@ fn test_mach_dsym() -> Result<(), Error> {
     )
     "#);
 
+    Ok(())
+}
+
+#[test]
+fn mach_data_symbols_existing_fixtures() -> Result<(), Error> {
+    for path in [
+        "macos/crash",
+        "macos/crash.dSYM/Contents/Resources/DWARF/crash",
+    ] {
+        let view = ByteView::open(fixture(path))?;
+        let object = MachObject::parse(&view)?;
+        let code_before: Vec<_> = object.symbols().collect();
+        let data = object.data_symbols()?.collect::<Result<Vec<_>, _>>()?;
+        assert!(!data.is_empty());
+        for symbol in data {
+            assert_eq!(symbol.arch, object.arch());
+            assert!(symbol.address >= symbol.section.address);
+            assert!(symbol.address - symbol.section.address < symbol.section.size);
+            assert_ne!(symbol.section.name, "__text");
+        }
+        assert_eq!(object.symbols().collect::<Vec<_>>(), code_before);
+    }
     Ok(())
 }
 

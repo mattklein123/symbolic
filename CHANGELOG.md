@@ -6,6 +6,10 @@
 
 - Add bounded, explicit `symbolic_demangle::demangle_type` support for bare C++ RTTI
   and legacy Swift runtime type names, preserving raw fallback and ordinary symbol behavior.
+- Add opt-in `MachObject::data_symbols` with raw names, aliases, checked image-relative addresses,
+  architecture, and section metadata, preserving existing code-symbol and SymCache behavior.
+- Add `symbolic-datacache` and the opt-in `symbolic::datacache` facade, with bounded Mach-O
+  construction, a portable versioned format, and validated borrowed exact `u64` alias lookup.
 
 ## 13.9.0
 

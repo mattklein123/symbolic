@@ -18,10 +18,12 @@ pub(crate) use mono_archive::{MonoArchive, MonoArchiveObjects};
 
 mod bcsymbolmap;
 pub mod compact;
+mod data_symbols;
 mod mono_archive;
 
 pub use bcsymbolmap::*;
 pub use compact::*;
+pub use data_symbols::*;
 
 /// Prefix for hidden symbols from Apple BCSymbolMap builds.
 const SWIFT_HIDDEN_PREFIX: &str = "__hidden#";

@@ -3,6 +3,9 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "macho")]
+pub mod macho;
+
 /// Returns the full path to the specified fixture.
 ///
 /// Fixtures are stored in the `testutils/fixtures` directory and paths should be given relative to

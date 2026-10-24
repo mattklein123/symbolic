@@ -9,3 +9,8 @@ publish = false
 all-features = true
 
 [dependencies]
+goblin = { workspace = true, features = ["mach64", "std"], optional = true }
+scroll = { workspace = true, optional = true }
+
+[features]
+macho = ["dep:goblin", "dep:scroll"]

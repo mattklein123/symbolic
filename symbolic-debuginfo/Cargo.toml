@@ -115,10 +115,10 @@ zstd = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 insta = { workspace = true }
-proptest = {workspace = true }
+proptest = { workspace = true }
 tempfile = { workspace = true }
 similar-asserts = { workspace = true }
-symbolic-testutils = { path = "../symbolic-testutils" }
+symbolic-testutils = { path = "../symbolic-testutils", features = ["macho"] }
 
 [[bench]]
 name = "breakpad_parser"

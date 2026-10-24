@@ -36,6 +36,7 @@
 //! - **`debuginfo`** (default): Contains support for various object file formats and debugging
 //!   information. Currently, this comprises MachO and ELF (with DWARF debugging), PE and PDB, as
 //!   well as Breakpad symbols.
+//! - **`datacache`**: Portable raw data-symbol caches with exact, full-width address lookup.
 //! - **`demangle`**: Demangling for Rust, C++, Swift and Objective C symbols. This feature requires
 //!   a C++14 compiler on the PATH.
 //! - **`symcache`**: An optimized, platform-independent storage for common debugging information.
@@ -61,6 +62,9 @@
 pub use symbolic_cfi as cfi;
 #[doc(inline)]
 pub use symbolic_common as common;
+#[doc(inline)]
+#[cfg(feature = "datacache")]
+pub use symbolic_datacache as datacache;
 #[doc(inline)]
 #[cfg(feature = "debuginfo")]
 pub use symbolic_debuginfo as debuginfo;

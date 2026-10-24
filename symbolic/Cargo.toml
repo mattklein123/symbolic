@@ -24,6 +24,7 @@ all-features = true
 default = ["debuginfo"]
 cfi = ["symbolic-cfi", "debuginfo"]
 common-serde = ["symbolic-common/serde"]
+datacache = ["dep:symbolic-datacache"]
 debuginfo = ["symbolic-debuginfo"]
 debuginfo-serde = ["debuginfo", "common-serde"]
 demangle = ["symbolic-demangle"]
@@ -37,6 +38,7 @@ unreal-serde = ["unreal", "common-serde", "symbolic-unreal/serde"]
 [dependencies]
 symbolic-cfi = { version = "13.9.0", path = "../symbolic-cfi", optional = true }
 symbolic-common = { version = "13.9.0", path = "../symbolic-common" }
+symbolic-datacache = { version = "13.9.0", path = "../symbolic-datacache", optional = true }
 symbolic-debuginfo = { version = "13.9.0", path = "../symbolic-debuginfo", optional = true }
 symbolic-demangle = { version = "13.9.0", path = "../symbolic-demangle", optional = true }
 symbolic-il2cpp = { version = "13.9.0", path = "../symbolic-il2cpp", optional = true }
