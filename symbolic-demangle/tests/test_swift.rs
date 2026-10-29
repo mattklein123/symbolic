@@ -24,6 +24,8 @@ fn runtime_types_demangle_classes_and_generics() {
             "_TtGCs23_ContiguousArrayStorageSi_",
             "Swift._ContiguousArrayStorage<Swift.Int>",
         ),
+        ("_TtGCs11_SetStorageSS_", "Swift._SetStorage<Swift.String>"),
+        ("_TtGCs11_SetStorageSS_$", "Swift._SetStorage<Swift.String>"),
         (
             "_TtC4TestP33_0123456789ABCDEF0123456789ABCDEF3Foo",
             "Test.(Foo in _0123456789ABCDEF0123456789ABCDEF)",
@@ -45,6 +47,10 @@ fn runtime_types_preserve_unsupported_names() {
         "_TtG",
         "_TtC10Foundation13__DataStoragejunk",
         "_TtC10Foundation13__DataStorage\0",
+        "_TtGCs11_SetStorageSS_$$",
+        "_TtGCs11_SetStorageSS_$junk",
+        "_TtG$",
+        "Readable$",
         "$s4Test3fooyyF",
     ] {
         assert_eq!(demangle_type(raw, Language::Swift), raw);

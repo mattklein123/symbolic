@@ -1,4 +1,103 @@
+//! Stable wire identities, provenance categories, completeness states, and independent safety limits.
+//!
+//! These discriminants are serialized explicitly as integers. In particular, adding a record kind
+//! must not reinterpret a metadata artifact as an allocation type or change existing wire values.
+
 use symbolic_common::Arch;
+
+/// Provenance of an exact address record, not an allocation-instance type.
+/// v1 permits only zero; v2 stores these stable discriminants in the former reserved record word.
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(u32)]
+pub enum RecordKind {
+    /// An original section-defined symbol-table entry.
+    #[default]
+    Symbol = 0,
+    /// Objective-C read-only class data.
+    ClassData = 1,
+    /// An Objective-C class object.
+    ClassObject = 2,
+    /// Objective-C read-only metaclass data.
+    MetaclassData = 3,
+    /// An Objective-C metaclass object.
+    MetaclassObject = 4,
+    /// An explicitly identified class-data ABI field.
+    ClassDataField = 5,
+    /// An explicitly identified class-object ABI field.
+    ClassObjectField = 6,
+    /// An explicitly identified metaclass-data ABI field.
+    MetaclassDataField = 7,
+    /// An explicitly identified metaclass-object ABI field.
+    MetaclassObjectField = 8,
+    /// An original symbol at an exact instruction address.
+    Function = 9,
+    /// A validated constant-string object.
+    ConstantString = 10,
+    /// An explicitly identified constant-string ABI field.
+    ConstantStringField = 11,
+    /// An Objective-C instance-variable list.
+    IvarList = 12,
+    /// An explicitly identified instance-variable entry field.
+    IvarEntry = 13,
+    /// An Objective-C adopted-protocol list.
+    ProtocolList = 14,
+    /// An Objective-C protocol object.
+    Protocol = 15,
+    /// An explicitly identified protocol ABI field.
+    ProtocolField = 16,
+    /// A Swift type-context descriptor.
+    SwiftTypeDescriptor = 17,
+    /// An explicitly identified Swift type-descriptor ABI field.
+    SwiftTypeDescriptorField = 18,
+    /// An implementation reached from a validated Objective-C method list.
+    MethodImplementation = 19,
+    /// An explicitly identified Objective-C method-entry field.
+    MethodEntry = 20,
+    /// An exact, pointer-aligned member of the shared-cache selector table.
+    Selector = 21,
+    /// A validated constant integer object.
+    ConstantInteger = 22,
+    /// An explicitly identified constant-integer field.
+    ConstantIntegerField = 23,
+    /// A validated constant dictionary object.
+    ConstantDictionary = 24,
+    /// An explicitly identified constant-dictionary field.
+    ConstantDictionaryField = 25,
+}
+
+impl RecordKind {
+    pub(crate) fn from_u32(value: u32) -> Result<Self, ParseError> {
+        match value {
+            0 => Ok(Self::Symbol),
+            1 => Ok(Self::ClassData),
+            2 => Ok(Self::ClassObject),
+            3 => Ok(Self::MetaclassData),
+            4 => Ok(Self::MetaclassObject),
+            5 => Ok(Self::ClassDataField),
+            6 => Ok(Self::ClassObjectField),
+            7 => Ok(Self::MetaclassDataField),
+            8 => Ok(Self::MetaclassObjectField),
+            9 => Ok(Self::Function),
+            10 => Ok(Self::ConstantString),
+            11 => Ok(Self::ConstantStringField),
+            12 => Ok(Self::IvarList),
+            13 => Ok(Self::IvarEntry),
+            14 => Ok(Self::ProtocolList),
+            15 => Ok(Self::Protocol),
+            16 => Ok(Self::ProtocolField),
+            17 => Ok(Self::SwiftTypeDescriptor),
+            18 => Ok(Self::SwiftTypeDescriptorField),
+            19 => Ok(Self::MethodImplementation),
+            20 => Ok(Self::MethodEntry),
+            21 => Ok(Self::Selector),
+            22 => Ok(Self::ConstantInteger),
+            23 => Ok(Self::ConstantIntegerField),
+            24 => Ok(Self::ConstantDictionary),
+            25 => Ok(Self::ConstantDictionaryField),
+            _ => Err(ParseError::Enum("record kind")),
+        }
+    }
+}
 
 /// Identity and provenance of one original Mach-O slice.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -31,7 +130,8 @@ pub enum ObjectKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum State {
-    /// All raw symbols were inspected successfully, possibly yielding no data symbols.
+    /// All raw symbols were inspected successfully, possibly yielding no records. Unsupported
+    /// metadata encodings may still have been skipped; this is not a universal ABI-coverage promise.
     Complete = 0,
     /// Extraction stopped; no partial alias groups are exposed.
     Incomplete = 1,
@@ -67,7 +167,7 @@ pub enum Reason {
     BuilderMemoryLimit = 10,
 }
 
-/// Extraction counters. Accepted records are counted before duplicate removal.
+/// Raw nlist extraction counters, before duplicate removal; derived metadata does not increment them.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Statistics {
     /// Number of declared raw nlist entries.
@@ -93,7 +193,7 @@ pub struct ReadLimits {
     pub string_bytes: u64,
     /// Maximum aliases at one address.
     pub aliases: u64,
-    /// Maximum raw symbol name bytes.
+    /// Maximum raw or derived record-name bytes.
     pub name_length: u64,
     /// Maximum cumulative referenced symbol-name bytes.
     pub referenced_name_bytes: u64,
@@ -105,7 +205,7 @@ impl Default for ReadLimits {
             file_bytes: 64 << 20,
             addresses: 1_000_000,
             records: 1_000_000,
-            sections: 255,
+            sections: 256,
             string_bytes: 32 << 20,
             aliases: 4096,
             name_length: 16 << 10,
@@ -117,13 +217,13 @@ impl Default for ReadLimits {
 /// Construction budgets; callers may lower these independently of reader limits.
 #[derive(Clone, Copy, Debug)]
 pub struct BuildLimits {
-    /// Maximum inspected nlist entries, including filtered entries.
+    /// Maximum inspected nlist entries and, separately, metadata graph steps, including rejected work.
     pub raw_symbols: u64,
-    /// Maximum accepted raw records, before duplicate removal.
+    /// Maximum collected raw and derived records, before duplicate removal.
     pub records: u64,
     /// Maximum accepted aliases at one address, before duplicate removal.
     pub aliases: u64,
-    /// Maximum individual raw symbol name bytes.
+    /// Maximum individual raw name or derived label bytes.
     pub name_length: usize,
     /// Maximum cumulative examined name bytes, before interning.
     pub examined_name_bytes: u64,

@@ -359,6 +359,7 @@ fn try_demangle_swift_type(ident: &str) -> Option<String> {
     if !ident.starts_with("_Tt") {
         return None;
     }
+    let ident = ident.strip_suffix('$').unwrap_or(ident);
     let sym = CString::new(ident).ok()?;
     let mut buf = vec![0; 4097];
     unsafe {
@@ -539,6 +540,7 @@ pub fn demangle(ident: &str) -> Cow<'_, str> {
 /// limited to 4096 bytes, with additional parser and printer recursion limits. Swift support is
 /// limited to legacy `_Tt` runtime type names. Its node allocator is capped at 256 KiB and its
 /// printer at 16384 node visits; this does not change ordinary Swift function-symbol demangling.
+/// A single terminal `$` is ignored when the remaining Swift runtime type is valid.
 pub fn demangle_type(ident: &str, language: Language) -> Cow<'_, str> {
     if ident.len() > 4096 || ident.as_bytes().contains(&0) {
         return Cow::Borrowed(ident);

@@ -1,3 +1,10 @@
+//! Preserve exact section-defined Mach-O nlist records for data-cache ingestion.
+//!
+//! The public data-only iterator keeps its existing exclusions; the bounded address iterator also
+//! admits instruction sections for typed function context. Both retain raw names, original section
+//! ordinals/flags, and full-width image-relative addresses, without inventing ranges or type identity.
+//! Bounded traversal charges even rejected entries and names before interpreting their contents.
+
 use std::sync::Arc;
 
 use goblin::container::{Container, Ctx};
@@ -28,7 +35,8 @@ pub struct MachODataSection {
     pub flags: u32,
 }
 
-/// A section-defined, non-code Mach-O symbol, without inferred type identity or symbol size.
+/// A section-defined Mach-O symbol, without inferred type identity or symbol size.
+/// Data-only APIs exclude code; [`MachObject::bounded_address_symbols`] also returns instructions.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MachODataSymbol<'data> {
     /// Exact symbol-table spelling, including leading underscores and hidden bitcode names.
@@ -65,6 +73,15 @@ impl<'data> MachObject<'data> {
     /// Malformed section headers or ranges and unrepresentable section ordinals return an error
     /// before iteration. Malformed symbol records or string-table bounds yield iterator errors.
     pub fn data_symbols(&self) -> Result<MachODataSymbolIterator<'data>, MachError> {
+        self.section_symbols(false)
+    }
+
+    /// Build an ordinal-indexed section map shared by both selection policies. `None` placeholders
+    /// are essential: n_sect counts every section, not just the sections selected for this iterator.
+    fn section_symbols(
+        &self,
+        include_instructions: bool,
+    ) -> Result<MachODataSymbolIterator<'data>, MachError> {
         let load_address = self.load_address();
         let mut sections = Vec::new();
         for segment in &self.macho.segments {
@@ -113,7 +130,14 @@ impl<'data> MachObject<'data> {
                     != 0
                     || section.flags & constants::SECTION_TYPE == constants::S_SYMBOL_STUBS
                     || matches!(name, "__text" | "__stubs" | "__stub_helper");
-                if is_code || section.size == 0 {
+                // Including instructions does not admit stubs or debug sections. A stub is linker
+                // indirection, not proof of an original function's exact instruction address.
+                if (is_code && !include_instructions)
+                    || section.flags & constants::S_ATTR_DEBUG != 0
+                    || section.flags & constants::SECTION_TYPE == constants::S_SYMBOL_STUBS
+                    || matches!(name, "__stubs" | "__stub_helper")
+                    || section.size == 0
+                {
                     sections.push(None);
                     continue;
                 }
@@ -260,7 +284,28 @@ impl<'data> MachObject<'data> {
         &self,
         limits: DataSymbolLimits,
     ) -> Result<BoundedMachODataSymbols<'data>, MachError> {
-        let metadata = self.data_symbols()?;
+        self.bounded_section_symbols(limits, false)
+    }
+
+    /// Extracts exact section-defined data and instruction symbols with the same work bounds.
+    ///
+    /// Instruction records retain their original section flags; no function extent is inferred.
+    /// Stubs, debug sections, undefined symbols, and absolute symbols remain excluded.
+    pub fn bounded_address_symbols(
+        &self,
+        limits: DataSymbolLimits,
+    ) -> Result<BoundedMachODataSymbols<'data>, MachError> {
+        self.bounded_section_symbols(limits, true)
+    }
+
+    /// Borrow the original nlist/string byte ranges instead of letting an unbounded string iterator
+    /// scan names first. Entry width and endian context follow the source Mach-O, not the host.
+    fn bounded_section_symbols(
+        &self,
+        limits: DataSymbolLimits,
+        include_instructions: bool,
+    ) -> Result<BoundedMachODataSymbols<'data>, MachError> {
+        let metadata = self.section_symbols(include_instructions)?;
         let table = self.macho.load_commands.iter().find_map(|command| {
             if let load_command::CommandVariant::Symtab(table) = &command.command {
                 Some(table)
@@ -339,6 +384,8 @@ impl<'data> BoundedMachODataSymbols<'data> {
         self.examined
     }
 
+    /// Inspect raw entries in order; one error is terminal so callers cannot mistake a partial pass
+    /// for complete extraction. Section membership is checked only after bounded name validation.
     fn next_record(&mut self) -> Result<Option<MachODataSymbol<'data>>, DataSymbolError> {
         while self.inspected < self.declared {
             if self.inspected >= self.limits.raw_symbols {
@@ -355,6 +402,8 @@ impl<'data> BoundedMachODataSymbols<'data> {
                 .get(symbol.n_strx..)
                 .ok_or_else(|| MachError::new("Mach-O symbol name exceeds string table"))?;
             let remaining = self.limits.name_bytes.saturating_sub(self.examined);
+            // Scan one byte beyond each allowed name length to distinguish an exact-boundary NUL
+            // from an overlong name. The cumulative budget counts non-NUL bytes, even for exclusions.
             let scan = tail
                 .len()
                 .min(self.limits.name_length.saturating_add(1))

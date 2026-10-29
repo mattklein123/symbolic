@@ -1,16 +1,23 @@
+//! Validate and borrow a data-cache payload once, then serve allocation-free exact-address lookups.
+//!
+//! Header/table integrity is checked before references are traversed; semantic validation then proves
+//! section ownership and canonical alias groups. v1 raw records and v2 typed descriptions share the
+//! same table widths. Neither version supplies symbol ranges or a nearest-address fallback.
+
 use std::ops::Range;
 use std::str;
 
 use symbolic_common::Arch;
 
 use crate::format::{digest, read_u32, read_u64, tables, Table, HEADER_SIZE, MAGIC, VERSION};
-use crate::{Identity, ObjectKind, ParseError, ReadLimits, Reason, State, Statistics};
+use crate::{Identity, ObjectKind, ParseError, ReadLimits, Reason, RecordKind, State, Statistics};
 
 mod validation;
 
 /// A fully validated borrowed cache. Keep its immutable backing bytes alive for all views.
 #[derive(Debug)]
 pub struct DataCache<'data> {
+    version: u32,
     identity: Identity,
     state: State,
     reason: Reason,
@@ -28,23 +35,25 @@ pub struct DataSection<'data> {
     pub address: u64,
     /// In-memory extent.
     pub size: u64,
-    /// Original one-based Mach-O ordinal.
+    /// Original one-based Mach-O ordinal; zero explicitly denotes a declared selector pool.
     pub macho_ordinal: u32,
-    /// Original section flags.
+    /// Original section flags, or zero for a selector pool.
     pub flags: u32,
     /// Original segment spelling.
     pub segment_name: &'data str,
-    /// Original section spelling.
+    /// Original section spelling, or `__selectors` for a selector pool.
     pub name: &'data str,
 }
 
-/// An exact-match raw symbol view, not an inferred allocation type.
+/// An exact-match raw symbol or derived artifact view, not an inferred allocation type.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DataSymbol<'data> {
     /// Matched image-relative address.
     pub address: u64,
-    /// Raw symbol spelling, including leading underscores.
+    /// Original linker spelling or derived metadata/literal label; the reader does not demangle it.
     pub name: &'data str,
+    /// Raw-symbol or recovered-association provenance, never an allocation-instance type.
+    pub kind: RecordKind,
     /// Original section provenance.
     pub section: DataSection<'data>,
 }
@@ -59,8 +68,9 @@ impl<'data> DataCache<'data> {
         if bytes.len() < HEADER_SIZE || &bytes[..8] != MAGIC {
             return Err(ParseError::Header);
         }
-        if read_u32(bytes, 8) != VERSION {
-            return Err(ParseError::Version(read_u32(bytes, 8)));
+        let version = read_u32(bytes, 8);
+        if version != VERSION && version != 2 {
+            return Err(ParseError::Version(version));
         }
         if read_u32(bytes, 12) != HEADER_SIZE as u32
             || bytes[216..256].iter().any(|byte| *byte != 0)
@@ -113,6 +123,8 @@ impl<'data> DataCache<'data> {
             inspected_symbols: read_u64(bytes, 200),
             accepted_records: read_u64(bytes, 208),
         };
+        // Header counters describe raw nlist traversal even when v2 also contains derived records.
+        // Complete means the raw traversal finished, not that every possible metadata ABI is known.
         if !valid_state
             || uuid == [0; 16]
             || statistics.inspected_symbols > statistics.declared_symbols
@@ -127,17 +139,20 @@ impl<'data> DataCache<'data> {
             [
                 limits.addresses,
                 limits.records,
-                limits.sections.min(255),
+                limits.sections.min(256),
                 limits.string_bytes,
             ],
         )?;
         if bytes[96..128] != digest(&bytes[HEADER_SIZE..]) {
             return Err(ParseError::Checksum);
         }
+        // The entire pool must be UTF-8, and each later offset/length must also land on valid UTF-8
+        // boundaries. A correct digest alone says nothing about either property or table references.
         let strings = str::from_utf8(strings.bytes).map_err(|_| ParseError::Utf8)?;
         let mut source_digest = [0; 32];
         source_digest.copy_from_slice(&bytes[64..96]);
         let cache = Self {
+            version,
             identity: Identity {
                 uuid,
                 preferred_load_address: read_u64(bytes, 40),
@@ -153,6 +168,8 @@ impl<'data> DataCache<'data> {
             sections,
             strings,
         };
+        // Terminal files and complete-but-empty files must have no residual searchable tables.
+        // This rejects partial publication rather than silently exposing a usable-looking prefix.
         if (state != State::Complete || addresses.len() == 0)
             && (records.len() != 0
                 || sections.len() != 0
@@ -185,7 +202,7 @@ impl<'data> DataCache<'data> {
     pub fn address_count(&self) -> usize {
         self.addresses.len()
     }
-    /// Number of searchable raw aliases after exact duplicate removal.
+    /// Number of searchable raw and derived aliases after exact duplicate removal.
     pub fn record_count(&self) -> usize {
         self.records.len()
     }
@@ -213,6 +230,8 @@ impl<'data> DataCache<'data> {
         })
     }
 
+    /// Binary-search exact address rows; validation has already proven their ranges partition aliases.
+    /// A miss returns an empty range, never the preceding symbol's records.
     fn find(&self, address: u64, mut compared: impl FnMut()) -> Range<usize> {
         let mut low = 0;
         let mut high = self.addresses.len();
@@ -232,7 +251,7 @@ impl<'data> DataCache<'data> {
         0..0
     }
 
-    /// Returns all raw aliases at exactly this image-relative address in `O(log N + K)` work.
+    /// Returns all raw and derived aliases at exactly this image-relative address in `O(log N + K)`.
     pub fn lookup_exact(&self, address: u64) -> Matches<'_, 'data> {
         Matches {
             cache: self,
@@ -264,6 +283,7 @@ impl<'data> Iterator for Matches<'_, 'data> {
         Some(DataSymbol {
             address: self.address,
             name: self.cache.string(row, 4).ok()?,
+            kind: RecordKind::from_u32(read_u32(row, 12)).ok()?,
             section: self.cache.section(read_u32(row, 0) as usize).ok()?,
         })
     }

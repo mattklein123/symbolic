@@ -9,9 +9,10 @@ rust-version.workspace = true
 
 [features]
 default = ["builder"]
-builder = ["dep:symbolic-debuginfo"]
+builder = ["dep:goblin", "dep:symbolic-debuginfo"]
 
 [dependencies]
+goblin = { workspace = true, features = ["mach64", "std"], optional = true }
 sha2 = { workspace = true }
 symbolic-common = { version = "13.9.0", path = "../symbolic-common" }
 symbolic-debuginfo = { version = "13.9.0", path = "../symbolic-debuginfo", optional = true }
@@ -20,7 +21,6 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-goblin = { workspace = true, features = ["mach64", "std"] }
 proptest = { workspace = true }
 scroll = { workspace = true }
 symbolic-testutils = { path = "../symbolic-testutils", features = ["macho"] }

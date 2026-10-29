@@ -100,7 +100,7 @@ fn supports_unaligned_and_mapped_bytes_after_unlink() {
 #[test]
 fn rejects_header_enums_identity_counters_and_terminal_payloads() {
     for (offset, value) in [
-        (8, 2),
+        (8, 3),
         (12, 255),
         (48, u32::MAX),
         (52, 4),
@@ -199,6 +199,31 @@ fn rejects_corrupt_tables_even_with_correct_checksum() {
     let mut bytes = golden();
     bytes.push(0);
     assert!(DataCache::parse(&bytes, ReadLimits::default()).is_err());
+}
+
+#[test]
+fn typed_records_retain_raw_counter_and_enum_validation() {
+    let mut bytes = golden();
+    set32(&mut bytes, 8, 2);
+    set64(&mut bytes, 208, 0);
+    assert_eq!(
+        DataCache::parse(&bytes, ReadLimits::default()).unwrap_err(),
+        ParseError::Identity
+    );
+    set32(&mut bytes, 284, 1);
+    repair(&mut bytes);
+    assert_eq!(
+        DataCache::parse(&bytes, ReadLimits::default())
+            .unwrap()
+            .record_count(),
+        1
+    );
+    set32(&mut bytes, 284, u32::MAX);
+    repair(&mut bytes);
+    assert_eq!(
+        DataCache::parse(&bytes, ReadLimits::default()).unwrap_err(),
+        ParseError::Enum("record kind")
+    );
 }
 
 #[test]
