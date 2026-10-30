@@ -30,6 +30,8 @@ mod selectors;
 mod strings;
 #[path = "metadata/swift.rs"]
 mod swift;
+#[path = "metadata/vtables.rs"]
+mod vtables;
 
 /// Immutable, ingestion-only virtual-address context, such as a matching dyld shared cache.
 /// Addresses use the image's original VM coordinates, not process ASLR addresses. Implementations
@@ -129,7 +131,7 @@ impl<'data> Image<'data, '_> {
     /// Read a bounded UTF-8 C string, charging every examined byte including the terminator.
     /// Remember a budget failure even when an ABI reader treats `None` as an invalid candidate.
     fn name(&self, address: u64) -> Option<&'data str> {
-        let bound = self.limits.name_length.min(4096);
+        let bound = self.limits.name_length;
         for size in 1..=bound {
             let examined = self.name_bytes.get().checked_add(1)?;
             if examined > self.limits.examined_name_bytes {
@@ -341,6 +343,7 @@ pub(crate) fn extract<'data>(
     }
     // Each reader validates its own root/structure ABI. A sticky string-budget failure must still
     // escape even if the last reader merely skipped the candidate that exhausted that budget.
+    image.vtables()?;
     image.objc()?;
     image.swift()?;
     image.constant_strings()?;

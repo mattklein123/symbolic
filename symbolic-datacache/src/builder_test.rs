@@ -73,6 +73,167 @@ fn instruction_symbols_have_exact_typed_records_without_undefined_synthetic_name
     assert_eq!(cache.record_count(), 1);
 }
 
+fn vtable_source(offset: u64) -> Vec<u8> {
+    let mut sections = [
+        data_section("__DATA_CONST", "__const", BASE + 0x1000, 0x100, 0),
+        data_section("__TEXT", "__text", BASE + 0x2000, 0x40, 0x8000_0400),
+    ];
+    sections[0].offset = 0x1000;
+    sections[1].offset = 0x1100;
+    let mut source = data_symbol_fixture(
+        BASE,
+        &sections,
+        &[
+            ("__ZTV5Probe", symbols::N_SECT, 1, BASE + 0x1000 + offset),
+            ("_ZTV5Probe", symbols::N_SECT, 1, BASE + 0x1000 + offset),
+        ],
+        Some(UUID),
+    );
+    source.resize(0x1200, 0);
+    write_u64(&mut source, 0x1000 + offset as usize + 16, BASE + 0x2000);
+    source
+}
+
+#[test]
+fn vtable_address_points_preserve_exact_aliases_with_and_without_rtti() {
+    for rtti in [0, BASE + 0x1040] {
+        let mut source = vtable_source(0);
+        write_u64(&mut source, 0x1008, rtti);
+        let built = build(&source, BuildLimits::default());
+        let cache = DataCache::parse(built.as_bytes(), ReadLimits::default()).unwrap();
+        assert_eq!(built.state(), State::Complete);
+        assert_eq!(cache.lookup_exact(0x1000).len(), 2);
+        let aliases: Vec<_> = cache.lookup_exact(0x1010).collect();
+        assert_eq!(aliases.len(), 2);
+        for alias in aliases {
+            assert_eq!(alias.kind, RecordKind::CxxVtableAddressPoint);
+            assert_eq!(alias.section.name, "__const");
+        }
+        for offset in [0x1008, 0x1011, 0x1018] {
+            assert_eq!(cache.lookup_exact(offset).len(), 0);
+        }
+    }
+}
+
+#[test]
+fn vtable_address_points_reject_unproven_layouts() {
+    for (offset, offset_to_top, rtti, function) in [
+        (1, 0, 0, BASE + 0x2000),
+        (0, u64::MAX - 7, 0, BASE + 0x2000),
+        (0, 8, 0, BASE + 0x2000),
+        (0, 0, BASE + 0x9000, BASE + 0x2000),
+        (0, 0, 0, BASE + 0x1040),
+        (0, 0, 0, 0),
+        (0xf0, 0, 0, BASE + 0x2000),
+    ] {
+        let mut source = vtable_source(offset);
+        let start = 0x1000 + offset as usize;
+        write_u64(&mut source, start, offset_to_top);
+        write_u64(&mut source, start + 8, rtti);
+        write_u64(&mut source, start + 16, function);
+        let built = build(&source, BuildLimits::default());
+        let cache = DataCache::parse(built.as_bytes(), ReadLimits::default()).unwrap();
+        assert_eq!(built.state(), State::Complete);
+        assert_eq!(cache.lookup_exact(0x1010 + offset).len(), 0);
+        assert_eq!(cache.lookup_exact(0x1000 + offset).len(), 2);
+    }
+}
+
+fn chained_vtable_source(function: u64, import: Option<&str>) -> Vec<u8> {
+    let mut source = vtable_source(0);
+    let mut fixups = vec![0; 68];
+    write_u32(&mut fixups, 4, 28);
+    write_u32(&mut fixups, 28, 3);
+    write_u32(&mut fixups, 36, 16);
+    write_u32(&mut fixups, 44, 24);
+    fixups[48..50].copy_from_slice(&4096u16.to_le_bytes());
+    fixups[50..52].copy_from_slice(&9u16.to_le_bytes());
+    write_u64(&mut fixups, 52, 0x1000);
+    fixups[64..66].copy_from_slice(&1u16.to_le_bytes());
+    fixups[66..68].copy_from_slice(&16u16.to_le_bytes());
+    if let Some(name) = import {
+        write_u32(&mut fixups, 8, 68);
+        write_u32(&mut fixups, 12, 72);
+        write_u32(&mut fixups, 16, 1);
+        write_u32(&mut fixups, 20, 1);
+        fixups.extend_from_slice(&0u32.to_le_bytes());
+        fixups.extend_from_slice(name.as_bytes());
+        fixups.push(0);
+    }
+    let symbols_offset = 0x1200 + fixups.len() as u32;
+    let commands_end = 32 + read_u32(&source, 20) as usize;
+    let symtab = commands_end - 24;
+    let symbols_start = read_u32(&source, symtab + 8) as usize;
+    let strings_start = read_u32(&source, symtab + 16) as usize;
+    let strings_size = read_u32(&source, symtab + 20) as usize;
+    let symbols = source[symbols_start..strings_start + strings_size].to_vec();
+    write_u32(&mut source, symtab + 8, symbols_offset);
+    write_u32(
+        &mut source,
+        symtab + 16,
+        symbols_offset + (strings_start - symbols_start) as u32,
+    );
+    let command_count = read_u32(&source, 16);
+    write_u32(&mut source, 16, command_count + 1);
+    write_u32(&mut source, 20, commands_end as u32 - 32 + 16);
+    write_u32(&mut source, commands_end, 0x8000_0034);
+    write_u32(&mut source, commands_end + 4, 16);
+    write_u32(&mut source, commands_end + 8, 0x1200);
+    write_u32(&mut source, commands_end + 12, fixups.len() as u32);
+    write_u64(&mut source, 104 + 40, 0x1000);
+    write_u64(&mut source, 104 + 48, 0x100);
+    source.extend_from_slice(&fixups);
+    source.extend_from_slice(&symbols);
+    write_u64(&mut source, 0x1010, function);
+    source
+}
+
+#[test]
+fn vtable_address_points_decode_authenticated_function_slots() {
+    let source = chained_vtable_source((1 << 63) | 0x2000, None);
+    let built = build(&source, BuildLimits::default());
+    let cache = DataCache::parse(built.as_bytes(), ReadLimits::default()).unwrap();
+    assert_eq!(built.state(), State::Complete);
+    assert_eq!(cache.lookup_exact(0x1010).len(), 2);
+}
+
+#[test]
+fn vtable_address_points_reject_imported_function_slots_preserving_raw_aliases() {
+    for function in [1 << 62, (1 << 63) | (1 << 62)] {
+        let source = chained_vtable_source(function, Some("_external_function"));
+        let built = build(&source, BuildLimits::default());
+        let cache = DataCache::parse(built.as_bytes(), ReadLimits::default()).unwrap();
+        assert_eq!(built.state(), State::Complete);
+        assert_eq!(cache.record_count(), 2);
+        assert_eq!(cache.lookup_exact(0x1010).len(), 0);
+        let aliases: Vec<_> = cache
+            .lookup_exact(0x1000)
+            .map(|symbol| (symbol.name, symbol.kind))
+            .collect();
+        assert_eq!(
+            aliases,
+            [
+                ("_ZTV5Probe", RecordKind::Symbol),
+                ("__ZTV5Probe", RecordKind::Symbol),
+            ]
+        );
+    }
+}
+
+#[test]
+fn vtable_address_points_reject_unrelated_or_instruction_sections() {
+    for (name, flags) in [("__data", 0), ("__const", 0x8000_0400)] {
+        let mut source = vtable_source(0);
+        source[176..192].fill(0);
+        source[176..176 + name.len()].copy_from_slice(name.as_bytes());
+        write_u32(&mut source, 176 + 64, flags);
+        let built = build(&source, BuildLimits::default());
+        let cache = DataCache::parse(built.as_bytes(), ReadLimits::default()).unwrap();
+        assert_eq!(built.state(), State::Complete);
+        assert_eq!(cache.lookup_exact(0x1010).len(), 0);
+    }
+}
+
 /// Stripped class graph: classlist -> class -> class_ro_t, plus isa -> metaclass -> metaclass_ro_t.
 /// VM offsets 0x1000/0x2000/0x3000/0x4000 map to file offsets 0x1000/0x1100/0x1200/0x1300.
 fn runtime_source() -> Vec<u8> {
@@ -104,6 +265,38 @@ fn runtime_source() -> Vec<u8> {
     write_u64(&mut source, 0x1298, BASE + 0x4000);
     source[0x1300..0x1306].copy_from_slice(b"Probe\0");
     source
+}
+
+#[test]
+fn metadata_names_obey_the_configured_length_limit() {
+    let mut source = runtime_source();
+    let length = 5000;
+    let segment = 32 + 72 + 3 * 152;
+    write_u64(&mut source, segment + 32, length + 1);
+    write_u64(&mut source, segment + 72 + 40, length + 1);
+    source.resize(0x1300 + length as usize + 1, 0);
+    source[0x1300..0x1300 + length as usize].fill(b'P');
+
+    let built = build(
+        &source,
+        BuildLimits {
+            name_length: 8192,
+            ..BuildLimits::default()
+        },
+    );
+    assert_eq!(built.state(), State::Complete);
+    let cache = DataCache::parse(built.as_bytes(), ReadLimits::default()).unwrap();
+    assert_eq!(cache.lookup_exact(0x3000).next().unwrap().name.len(), 5000);
+
+    let limited = build(
+        &source,
+        BuildLimits {
+            name_length: 4096,
+            ..BuildLimits::default()
+        },
+    );
+    assert_eq!(limited.state(), State::Incomplete);
+    assert_eq!(limited.reason(), Reason::NameLengthLimit);
 }
 
 #[test]

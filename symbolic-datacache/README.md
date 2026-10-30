@@ -27,6 +27,11 @@ addresses without indexing unaligned strings or their interiors. Table occupancy
 emission. Slot traversal is bounded by the smaller of 4,194,304 and the next power of two of the
 configured raw-entry budget. Emitted names/records still consume the ordinary shared budgets.
 
+Primary Itanium C++ vtable address points are rooted in exact `_ZTV` symbols in data `__const`
+sections. Extraction requires a zero offset-to-top, readable RTTI when nonzero, and a decoded first
+function slot in this image's instruction sections. Zero RTTI is supported. Secondary tables,
+virtual-base prefixes, and unproven function targets are not inferred by adjusting lookup offsets.
+
 The default `builder` feature enables `DataCacheBuilder::from_macho` and `serialize`. Disable
 default features for a reader without Mach-O dependencies. The `symbolic` facade exposes this
 crate through its opt-in `datacache` feature.
@@ -139,7 +144,8 @@ Kind codes are symbol 0; class data 1; class object 2; metaclass data 3; metacla
 their respective fields 5 through 8; function 9; constant string 10; constant-string field 11;
 ivar list 12; ivar entry 13; protocol list 14; protocol 15; protocol field 16; Swift type descriptor
 17; Swift type-descriptor field 18; method implementation 19; method-entry field 20; selector 21;
-constant integer 22; integer field 23; constant dictionary 24; dictionary field 25.
+constant integer 22; integer field 23; constant dictionary 24; dictionary field 25;
+primary C++ vtable address point 26.
 These describe the addressed artifact, not heap-instance
 types. Callers must preserve genuine alias conflicts rather than choosing an attractive name.
 

@@ -549,7 +549,7 @@ pub fn demangle_type(ident: &str, language: Language) -> Cow<'_, str> {
     let demangled = match language {
         #[cfg(feature = "cpp")]
         Language::Cpp if !is_maybe_cpp(ident) && !is_maybe_msvc(ident) => {
-            try_demangle_cpp_encoding(ident, DemangleOptions::complete(), 32, 64)
+            try_demangle_cpp_encoding(ident, DemangleOptions::complete(), 64, 64)
         }
         #[cfg(feature = "swift")]
         Language::Swift => try_demangle_swift_type(ident),

@@ -26,6 +26,25 @@ fn runtime_types_require_explicit_context() {
 }
 
 #[test]
+fn runtime_types_demangle_nested_function_objects() {
+    let raw = concat!(
+        "NSt3__110__function6__funcIZNK3gdc8Registry27_registerStorageDataSignalsE",
+        "mNS2_8TypeInfoEPNS2_23ComponentStorageSignalsEEUlPS3_NS_4spanINS2_6EntityE",
+        "Lm18446744073709551615EEEE0_FvS7_SA_EEE",
+    );
+    assert_eq!(
+        demangle_type(raw, Language::Cpp),
+        concat!(
+            "std::__1::__function::__func<gdc::Registry::_registerStorageDataSignals(",
+            "unsigned long, gdc::TypeInfo, gdc::ComponentStorageSignals*) const::{lambda(",
+            "gdc::Registry*, std::__1::span<gdc::Entity, (unsigned long)18446744073709551615>)#2}, ",
+            "void (gdc::Registry*, std::__1::span<gdc::Entity, ",
+            "(unsigned long)18446744073709551615>)>",
+        ),
+    );
+}
+
+#[test]
 fn runtime_types_preserve_unsupported_names() {
     for raw in [
         "",
@@ -42,7 +61,11 @@ fn runtime_types_preserve_unsupported_names() {
 
 #[test]
 fn runtime_types_bound_input_and_recursion() {
-    for raw in ["P".repeat(512) + "i", "1".repeat(4097)] {
+    for raw in [
+        "P".repeat(65) + "i",
+        "P".repeat(512) + "i",
+        "1".repeat(4097),
+    ] {
         assert_eq!(demangle_type(&raw, Language::Cpp), raw);
     }
 }

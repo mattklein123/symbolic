@@ -63,6 +63,8 @@ pub enum RecordKind {
     ConstantDictionary = 24,
     /// An explicitly identified constant-dictionary field.
     ConstantDictionaryField = 25,
+    /// The validated primary address point of an Itanium C++ vtable.
+    CxxVtableAddressPoint = 26,
 }
 
 impl RecordKind {
@@ -94,6 +96,7 @@ impl RecordKind {
             23 => Ok(Self::ConstantIntegerField),
             24 => Ok(Self::ConstantDictionary),
             25 => Ok(Self::ConstantDictionaryField),
+            26 => Ok(Self::CxxVtableAddressPoint),
             _ => Err(ParseError::Enum("record kind")),
         }
     }

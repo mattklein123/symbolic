@@ -210,15 +210,17 @@ fn typed_records_retain_raw_counter_and_enum_validation() {
         DataCache::parse(&bytes, ReadLimits::default()).unwrap_err(),
         ParseError::Identity
     );
-    set32(&mut bytes, 284, 1);
-    repair(&mut bytes);
-    assert_eq!(
-        DataCache::parse(&bytes, ReadLimits::default())
-            .unwrap()
-            .record_count(),
-        1
-    );
-    set32(&mut bytes, 284, u32::MAX);
+    for kind in [1, 26] {
+        set32(&mut bytes, 284, kind);
+        repair(&mut bytes);
+        let cache = DataCache::parse(&bytes, ReadLimits::default()).unwrap();
+        assert_eq!(cache.record_count(), 1);
+        assert_eq!(cache.lookup_exact(0).next().unwrap().kind as u32, kind);
+    }
+    set32(&mut bytes, 8, 1);
+    assert!(DataCache::parse(&bytes, ReadLimits::default()).is_err());
+    set32(&mut bytes, 8, 2);
+    set32(&mut bytes, 284, 27);
     repair(&mut bytes);
     assert_eq!(
         DataCache::parse(&bytes, ReadLimits::default()).unwrap_err(),
